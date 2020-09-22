@@ -1,6 +1,6 @@
 # drain-rs
 
-Drain provides a machinism for online log categorization.
+Drain provides a mechanism for online log categorization.
 
 This version provides:
 
@@ -12,13 +12,13 @@ Original paper here:
 - Pinjia He, Jieming Zhu, Zibin Zheng, and Michael R. Lyu. [Drain: An Online Log Parsing Approach with Fixed Depth Tree](http://jmzhu.logpai.com/pub/pjhe_icws2017.pdf), Proceedings of the 24th International Conference on Web Services (ICWS), 2017.
 
 
-This is a WIP, 0.0.x
+This is a WIP, 0.2.x
 
 ## Installing
 
 ```
 [dependencies]
-drain-rs = "0.1.0"
+drain-rs = "0.2.0"
 ```
 
 ## Using drain for clustering
