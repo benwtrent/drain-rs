@@ -3,6 +3,11 @@ name = "drain-rs"
 version = "0.1.0"
 authors = ["Benjamin Trent <4357155+benwtrent@users.noreply.github.com>"]
 edition = "2018"
+license-file = "LICENSE"
+keywords= ["drain", "log", "categorization", "grok"]
+description = "Automatically cluster semi-formatted text with the drain algorithm"
+readme="README.md"
+repository="https://github.com/benwtrent/drain-rs"
 
 [dependencies]
 grok = "1.1.0"
