@@ -22,8 +22,8 @@ impl<'de> Visitor<'de> for TokenVisitor {
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
+    where
+        E: de::Error,
     {
         if value == "<*>" {
             Ok(Token::WildCard)
@@ -35,8 +35,8 @@ impl<'de> Visitor<'de> for TokenVisitor {
 
 impl Serialize for Token {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(self.to_string().as_str())
     }
@@ -44,8 +44,8 @@ impl Serialize for Token {
 
 impl<'de> Deserialize<'de> for Token {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         deserializer.deserialize_str(TokenVisitor)
     }
@@ -237,7 +237,7 @@ impl Display for Node {
                         k,
                         v
                     )
-                        .to_string();
+                    .to_string();
                 }
             }
             Node::Leaf(node) => {
@@ -498,7 +498,7 @@ impl DrainTree {
 
     fn is_compiled(&self) -> bool {
         self.filter_patterns.len() == self.filter_patterns_str.len()
-            || self.overall_pattern.is_some()
+            && (self.overall_pattern.is_some() == self.overall_pattern_str.is_some())
     }
 
     pub fn log_group(&self, log_line: &str) -> Option<&LogCluster> {
@@ -554,6 +554,39 @@ mod tests {
             }
         }
         v
+    }
+
+    #[test]
+    fn patterns_built() {
+        let drain = DrainTree::new();
+        assert!(drain.is_compiled());
+
+        let mut g = grok::Grok::with_patterns();
+
+        let filter_patterns = vec!["%{IPV4:ip_address}", "%{NUMBER:user_id}"];
+        let drain = DrainTree::new().filter_patterns(filter_patterns);
+        assert!(!drain.is_compiled());
+
+        let drain = drain.build_patterns(&mut g);
+        assert!(drain.is_compiled());
+
+        let drain = drain.log_pattern(
+            "%{NUMBER:id} \\[%{LOGLEVEL:level}\\] %{GREEDYDATA:content}",
+            "content",
+        );
+
+        assert!(!drain.is_compiled());
+
+        let drain = drain.build_patterns(&mut g);
+        assert!(drain.is_compiled());
+
+        let drain = DrainTree::new().log_pattern(
+            "%{NUMBER:id} \\[%{LOGLEVEL:level}\\] %{GREEDYDATA:content}",
+            "content",
+        );
+        assert!(!drain.is_compiled());
+        let drain = drain.build_patterns(&mut g);
+        assert!(drain.is_compiled());
     }
 
     #[test]
