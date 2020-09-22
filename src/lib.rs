@@ -91,8 +91,11 @@ impl core::cmp::PartialOrd for GroupSimilarity {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+/// Represents a cluster of logs
 pub struct LogCluster {
+    /// The tokens representing this unique cluster
     log_tokens: Vec<Token>,
+    /// The number logs matched
     num_matched: u64,
 }
 
@@ -119,6 +122,12 @@ impl LogCluster {
         }
     }
 
+    /// How many logs have been matched in this cluster
+    pub fn num_matched(&self) -> u64 {
+        self.num_matched
+    }
+
+    /// Grab the current token strings
     pub fn as_string(&self) -> String {
         self.log_tokens
             .iter()
@@ -196,19 +205,26 @@ impl Leaf {
         group: Option<GroupAndSimilarity>,
         min_similarity: &f32,
         log_tokens: &[Token],
-    ) {
+    ) -> Option<&LogCluster> {
         match group {
             Some(gas) => {
                 if gas.similarity.approximate_similarity < *min_similarity {
-                    self.log_groups.push(LogCluster::new(log_tokens.to_vec()))
+                    let cluster = LogCluster::new(log_tokens.to_vec());
+                    self.log_groups.push(cluster);
+                    self.log_groups.last()
                 } else {
                     self.log_groups
                         .get_mut(gas.group_index)
                         .expect(format!("bad log group index [{}]", gas.group_index).as_str())
-                        .add_log(log_tokens)
+                        .add_log(log_tokens);
+                    self.log_groups.get(gas.group_index)
                 }
             }
-            None => self.log_groups.push(LogCluster::new(log_tokens.to_vec())),
+            None => {
+                let cluster = LogCluster::new(log_tokens.to_vec());
+                self.log_groups.push(cluster);
+                self.log_groups.last()
+            }
         }
     }
 }
@@ -284,7 +300,7 @@ impl Node {
         max_children: &u16,
         min_similarity: &f32,
         log_tokens: &[Token],
-    ) {
+    ) -> Option<&LogCluster> {
         let token = match &log_tokens[depth] {
             Token::Val(s) => {
                 if s.chars().any(|c| c.is_numeric()) {
@@ -300,12 +316,12 @@ impl Node {
                 let child = node.children.entry(token).or_insert(Node::leaf());
                 if let Node::Leaf(leaf) = child {
                     let best_group = leaf.best_group(log_tokens);
-                    leaf.add_to_group(best_group, min_similarity, log_tokens);
+                    return leaf.add_to_group(best_group, min_similarity, log_tokens);
                 }
             }
-            return;
+            return None;
         }
-        match self {
+        return match self {
             Node::Inner(inner) => {
                 let child = if !inner.children.contains_key(&token)
                     && inner.children.len() > *max_children as usize
@@ -326,17 +342,19 @@ impl Node {
                     max_children,
                     min_similarity,
                     log_tokens,
-                );
+                )
             }
             Node::Leaf(leaf) => {
                 let best_group = leaf.best_group(log_tokens);
-                leaf.add_to_group(best_group, min_similarity, log_tokens);
+                leaf.add_to_group(best_group, min_similarity, log_tokens)
             }
-        }
+        };
     }
 }
 
 #[derive(Serialize, Deserialize)]
+/// Main drain algorithm implementation
+/// Contains the structure of the drain prefix tree along with configuration options
 pub struct DrainTree {
     root: HashMap<usize, Node>,
     max_depth: u16,
@@ -376,21 +394,41 @@ impl DrainTree {
         }
     }
 
+    /// How deep should the tree be allowed to grow
+    /// The deeper the tree, the more specific the clusters,
+    /// but also the more space + time used for clustering
     pub fn max_depth(mut self, max_depth: u16) -> Self {
         self.max_depth = max_depth;
         self
     }
 
+    /// How many children does each inner node allow?
+    /// Once the number of max_children is reached, the inner node starts putting unmatched tokens
+    /// into the <*> (wildcard) branch.
     pub fn max_children(mut self, max_children: u16) -> Self {
         self.max_children = max_children;
         self
     }
 
+    /// For a log to be added to a cluster, how similar does it need to be with the current
+    /// template?
     pub fn min_similarity(mut self, min_similarity: f32) -> Self {
         self.min_similarity = min_similarity;
         self
     }
 
+    /// Token filtering and name replacement for tokens
+    /// If you set this, be sure to call `build_patterns` so that they can be compiled before use.
+    /// # Examples:
+    /// ```
+    /// let mut g = grok::Grok::with_patterns();
+    /// let filter_patterns = vec![
+    ///         "blk_(|-)[0-9]+",     //blockid
+    ///        "%{IPV4:ip_address}", //IP
+    ///         "%{NUMBER:number}",   //Num
+    ///     ];
+    /// let drain_tree = drain_rs::DrainTree::new().filter_patterns(filter_patterns).build_patterns(&mut g);
+    /// ```
     pub fn filter_patterns(mut self, filter_patterns: Vec<&str>) -> Self {
         self.filter_patterns_str = filter_patterns
             .iter()
@@ -399,14 +437,32 @@ impl DrainTree {
         self
     }
 
+    /// The overall log pattern and which extracted field to cluster
+    /// most logging formats have a well known format mixed with semi-structured text
+    /// This allows you to set the well known format and then only cluster on the semi-structured
+    /// text.
+    /// If you set this, be sure to call `build_patterns` so that they can be compiled before use.
+    ///
+    /// # Examples:
+    /// ```
+    /// let mut g = grok::Grok::with_patterns();
+    /// let filter_patterns = vec![
+    ///         "blk_(|-)[0-9]+",     //blockid
+    ///        "%{IPV4:ip_address}", //IP
+    ///         "%{NUMBER:number}",   //Num
+    ///     ];
+    /// let mut drain = drain_rs::DrainTree::new()
+    ///         // HDFS log pattern, variable format printout in the content section
+    ///         .log_pattern("%{NUMBER:date} %{NUMBER:time} %{NUMBER:proc} %{LOGLEVEL:level} %{DATA:component}: %{GREEDYDATA:content}", "content")
+    ///         .build_patterns(&mut g);
+    ///  ```
     pub fn log_pattern(mut self, overall_pattern: &str, drain_field: &str) -> Self {
         self.overall_pattern_str = Some(String::from(overall_pattern));
         self.drain_field = Some(String::from(drain_field));
         self
     }
 
-    // ugh, I don't like this. Would it be better to have a separate struct for building
-    // and then returning a DrainTree?
+    /// Build the patterns that have been supplied in `log_pattern` and `filter_patterns`
     pub fn build_patterns(mut self, grok: &mut grok::Grok) -> Self {
         if let Some(pattern_str) = &self.overall_pattern_str {
             self.overall_pattern = Some(
@@ -501,6 +557,8 @@ impl DrainTree {
             && (self.overall_pattern.is_some() == self.overall_pattern_str.is_some())
     }
 
+    /// Grab the log group for the given log line if it exists.
+    /// This does NOT modify the underlying tree.
     pub fn log_group(&self, log_line: &str) -> Option<&LogCluster> {
         let processed_line = self.apply_overall_pattern(log_line);
         let tokens = DrainTree::process(
@@ -510,7 +568,11 @@ impl DrainTree {
         self.log_group_for_tokens(tokens.as_slice())
     }
 
-    pub fn add_log_line(&mut self, log_line: &str) {
+    /// Add a new log line to the overall tree and return the current
+    /// reference to the created/modified log cluster
+    ///
+    /// Over time, the log clusters could change as new log lines are added.
+    pub fn add_log_line(&mut self, log_line: &str) -> Option<&LogCluster> {
         let processed_line = self.apply_overall_pattern(log_line);
         let tokens = DrainTree::process(
             &self.filter_patterns,
@@ -526,9 +588,10 @@ impl DrainTree {
                 &self.max_children,
                 &self.min_similarity,
                 tokens.as_slice(),
-            );
+            )
     }
 
+    /// Grab all the current log clusters
     pub fn log_groups(&self) -> Vec<&LogCluster> {
         self.root
             .values()
