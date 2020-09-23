@@ -12,7 +12,6 @@
 //! Node 4 going offline
 //!
 //! With a fixed tree depth of 3 we would get the following splits
-//! <Number of tokens>
 //!                  4 // initial root is the number of tokens
 //!                  |
 //!               "Node" // first prefix node of value "Node"
