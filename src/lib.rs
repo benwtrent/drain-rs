@@ -1,3 +1,28 @@
+//! Categorized semi-structured text utilizing the drain algorithm: https://arxiv.org/pdf/1806.04356.pdf
+//! The main implementation is a fixed-sized prefix tree.
+//! Consequently, this assumes that splits that give us more information come earlier in the text.
+//!
+//! This might prove to not be optimal given some text formats.
+//!
+//! Examples:
+//!
+//! Given log values:
+//!
+//! Node 2 is online
+//! Node 4 going offline
+//!
+//! With a fixed tree depth of 3 we would get the following splits
+//! <Number of tokens>
+//!                  4 // initial root is the number of tokens
+//!                  |
+//!               "Node" // first prefix node of value "Node"
+//!                 |
+//!               "<*>" // Numbers are assumed to be variable and are replaced with wildcard
+//!               /  \
+//!            "is"  "going" // last two splits of is and going
+//!             /       \
+//! [Node * is online] [Node * going offline] //the individual text templates for this simple case
+#![warn(missing_debug_implementations, rust_2018_idioms, missing_docs)]
 use grok;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -17,7 +42,7 @@ struct TokenVisitor;
 impl<'de> Visitor<'de> for TokenVisitor {
     type Value = Token;
 
-    fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str("a string")
     }
 
@@ -352,7 +377,7 @@ impl Node {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 /// Main drain algorithm implementation
 /// Contains the structure of the drain prefix tree along with configuration options
 pub struct DrainTree {
@@ -380,6 +405,7 @@ impl Display for DrainTree {
 }
 
 impl DrainTree {
+    /// Creates new DrainTree struct with default values
     pub fn new() -> Self {
         DrainTree {
             root: HashMap::new(),
@@ -602,7 +628,7 @@ impl DrainTree {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
+    use serde_json;
 
     const WILDCARD: &str = "<*>";
     use super::*;
