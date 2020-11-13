@@ -205,10 +205,7 @@ struct GroupAndSimilarity {
 
 impl Leaf {
     fn best_group(&self, log_tokens: &[Token]) -> Option<GroupAndSimilarity> {
-        let mut max_similarity = match self.log_groups.get(0) {
-            Some(group) => group.similarity(log_tokens),
-            None => return None,
-        };
+        let mut max_similarity = self.log_groups.get(0)?.similarity(log_tokens); 
         let mut group_index: usize = 0;
         for i in 1..self.log_groups.len() {
             let group = self.log_groups.get(i).unwrap();
@@ -347,19 +344,16 @@ impl Node {
         }
         return match self {
             Node::Inner(inner) => {
-                let child = if !inner.children.contains_key(&token)
-                    && inner.children.len() > *max_children as usize
-                {
-                    inner
-                        .children
-                        .entry(Token::WildCard)
-                        .or_insert(Node::inner(depth + 1))
+                let owned_token = if !inner.children.contains_key(&token)
+                    && inner.children.len().ge(&(*max_children as usize)) {
+                    Token::WildCard
                 } else {
-                    inner
-                        .children
-                        .entry(token)
-                        .or_insert(Node::inner(depth + 1))
+                    token
                 };
+                let child = inner
+                        .children
+                        .entry(owned_token)
+                        .or_insert(Node::inner(depth + 1));
                 child.add_child_recur(
                     depth + 1,
                     max_depth,
@@ -544,37 +538,26 @@ impl DrainTree {
         }
         if let Some(node) = current_node {
             if let Node::Leaf(leaf) = node {
-                return match leaf.best_group(processed_log) {
-                    Some(gas) => Some(&leaf.log_groups[gas.group_index]),
-                    None => None,
-                };
+                let gas = leaf.best_group(processed_log)?;
+                return Some(&leaf.log_groups[gas.group_index])
             }
         }
         None
     }
 
     fn log_group_for_tokens(&self, processed_log: &[Token]) -> Option<&LogCluster> {
-        match self.root.get(&processed_log.len()) {
-            Some(node) => self.dig_inner_prefix_tree(node, processed_log),
-            None => Option::None,
-        }
+        let n = self.root.get(&processed_log.len())?;
+        self.dig_inner_prefix_tree(n, processed_log)
     }
 
     fn apply_overall_pattern(&self, log_line: &str) -> Option<String> {
-        match &self.overall_pattern {
-            Some(p) => {
-                match p.match_against(log_line) {
-                    Some(matches) => {
-                        match matches.get(self.drain_field.as_ref().expect("illegal state. [overall_pattern] set without [drain_field] set").as_str()) {
-                            Some(s) => Option::Some(String::from(s)),
-                            None => Option::None
-                        }
-                    }
-                    None => Option::None,
-                }
-            }
-            None => Option::None,
-        }
+        let m = self.overall_pattern.as_ref()?.match_against(log_line)?; 
+        let df = self.drain_field
+            .as_ref()
+            .expect("illegal state. [overall_pattern] set without [drain_field] set")
+            .as_str();
+        let s = m.get(df)?;
+        Option::Some(String::from(s))
     }
 
     fn is_compiled(&self) -> bool {
