@@ -205,7 +205,7 @@ struct GroupAndSimilarity {
 
 impl Leaf {
     fn best_group(&self, log_tokens: &[Token]) -> Option<GroupAndSimilarity> {
-        let mut max_similarity = self.log_groups.get(0)?.similarity(log_tokens); 
+        let mut max_similarity = self.log_groups.get(0)?.similarity(log_tokens);
         let mut group_index: usize = 0;
         for i in 1..self.log_groups.len() {
             let group = self.log_groups.get(i).unwrap();
@@ -345,15 +345,16 @@ impl Node {
         return match self {
             Node::Inner(inner) => {
                 let owned_token = if !inner.children.contains_key(&token)
-                    && inner.children.len().ge(&(*max_children as usize)) {
+                    && inner.children.len().ge(&(*max_children as usize))
+                {
                     Token::WildCard
                 } else {
                     token
                 };
                 let child = inner
-                        .children
-                        .entry(owned_token)
-                        .or_insert(Node::inner(depth + 1));
+                    .children
+                    .entry(owned_token)
+                    .or_insert(Node::inner(depth + 1));
                 child.add_child_recur(
                     depth + 1,
                     max_depth,
@@ -539,7 +540,7 @@ impl DrainTree {
         if let Some(node) = current_node {
             if let Node::Leaf(leaf) = node {
                 let gas = leaf.best_group(processed_log)?;
-                return Some(&leaf.log_groups[gas.group_index])
+                return Some(&leaf.log_groups[gas.group_index]);
             }
         }
         None
@@ -551,8 +552,9 @@ impl DrainTree {
     }
 
     fn apply_overall_pattern(&self, log_line: &str) -> Option<String> {
-        let m = self.overall_pattern.as_ref()?.match_against(log_line)?; 
-        let df = self.drain_field
+        let m = self.overall_pattern.as_ref()?.match_against(log_line)?;
+        let df = self
+            .drain_field
             .as_ref()
             .expect("illegal state. [overall_pattern] set without [drain_field] set")
             .as_str();
@@ -567,12 +569,15 @@ impl DrainTree {
 
     /// Grab the log group for the given log line if it exists.
     /// This does NOT modify the underlying tree.
+    /// ```
+    /// let drain = drain_rs::DrainTree::new();
+    /// assert!(drain.log_group("[Sun Dec 04 04:51:08 2005] [notice] jk2_init() Found child 6725 in scoreboard slot 10").is_none());
+    ///  ```
     pub fn log_group(&self, log_line: &str) -> Option<&LogCluster> {
-        let processed_line = self.apply_overall_pattern(log_line);
-        let tokens = DrainTree::process(
-            &self.filter_patterns,
-            processed_line.unwrap_or(log_line.to_string()),
-        );
+        let processed_line = self
+            .apply_overall_pattern(log_line)
+            .unwrap_or(log_line.to_string());
+        let tokens = DrainTree::process(&self.filter_patterns, processed_line);
         self.log_group_for_tokens(tokens.as_slice())
     }
 
@@ -580,6 +585,10 @@ impl DrainTree {
     /// reference to the created/modified log cluster
     ///
     /// Over time, the log clusters could change as new log lines are added.
+    /// ```
+    /// let mut drain = drain_rs::DrainTree::new();
+    /// assert!(drain.add_log_line("[Sun Dec 04 04:51:08 2005] [notice] jk2_init() Found child 6725 in scoreboard slot 10").is_some());
+    ///  ```
     pub fn add_log_line(&mut self, log_line: &str) -> Option<&LogCluster> {
         let processed_line = self.apply_overall_pattern(log_line);
         let tokens = DrainTree::process(
@@ -600,6 +609,16 @@ impl DrainTree {
     }
 
     /// Grab all the current log clusters
+    /// ```
+    /// let mut g = grok::Grok::with_patterns();
+    /// let mut drain = drain_rs::DrainTree::new()
+    ///         // HDFS log pattern, variable format printout in the content section
+    ///         .log_pattern("\\[%{TIMESTAMP_ISO8601:timestamp}\\] - %{WORD:log_level}\\s*. %{GREEDYDATA:log_message}", "log_message")
+    ///         .build_patterns(&mut g);
+    /// assert!(drain.add_log_line("2015-07-29 19:04:29,071 - WARN  [SendWorker:188978561024:QuorumCnxManager$SendWorker@688] - Send worker leaving thread").is_some());
+    /// assert!(drain.add_log_line("2015-08-07 07:27:46,402 - INFO  [WorkerReceiver[myid=3]:FastLeaderElection@542] - Notification: 3 (n.leader), 0x700000197 (n.zxid), 0x1 (n.round), LOOKING (n.state), 3 (n.sid), 0x7 (n.peerEPoch), LOOKING (my state)").is_some());
+    /// assert_eq!(drain.log_groups().len(), 2);
+    /// ```
     pub fn log_groups(&self) -> Vec<&LogCluster> {
         self.root
             .values()
@@ -765,5 +784,4 @@ mod tests {
             );
         }
     }
-
 }
