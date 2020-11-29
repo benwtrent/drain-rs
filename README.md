@@ -16,7 +16,7 @@ This is a WIP, 0.2.x
 
 ## Installing
 
-```
+```rust
 [dependencies]
 drain-rs = "0.2.0"
 ```
@@ -25,7 +25,7 @@ drain-rs = "0.2.0"
 
 To use drain for clustering:
 
-```
+```rust
 //Create new drain tree object
 let mut drain = DrainTree::new()
 // Add log lines and see their group:
@@ -33,7 +33,7 @@ let log_group = drain.add_log_line(s.as_str());
 ```
 
 To use drain with grok:
-```
+```rust
 let mut g = grok::Grok::with_patterns();
 let filter_patterns = vec![
     "blk_(|-)[0-9]+",     //blockid
