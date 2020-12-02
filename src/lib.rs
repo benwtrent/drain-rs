@@ -117,9 +117,9 @@ impl core::cmp::PartialOrd for GroupSimilarity {
 #[derive(Debug, Serialize, Deserialize)]
 /// Represents a cluster of logs
 pub struct LogCluster {
-    /// The tokens representing this unique cluster
+    // The tokens representing this unique cluster
     log_tokens: Vec<Token>,
-    /// The number logs matched
+    // The number logs matched
     num_matched: u64,
 }
 
