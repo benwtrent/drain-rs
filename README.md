@@ -12,13 +12,13 @@ Original paper here:
 - Pinjia He, Jieming Zhu, Zibin Zheng, and Michael R. Lyu. [Drain: An Online Log Parsing Approach with Fixed Depth Tree](http://jmzhu.logpai.com/pub/pjhe_icws2017.pdf), Proceedings of the 24th International Conference on Web Services (ICWS), 2017.
 
 
-This is a WIP, 0.2.x
+This is a WIP, 0.3.x
 
 ## Installing
 
 ```rust
 [dependencies]
-drain-rs = "0.2.0"
+drain-rs = "0.3.0"
 ```
 
 ## Using drain for clustering
