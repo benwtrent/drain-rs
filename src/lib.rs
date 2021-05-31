@@ -22,7 +22,6 @@
 //!             /       \
 //! [Node * is online] [Node * going offline] //the individual text templates for this simple case
 #![warn(missing_debug_implementations, rust_2018_idioms, missing_docs)]
-use grok;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
@@ -79,7 +78,7 @@ impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Token::Val(s) => write!(f, "{}", s.as_str()),
-            Token::WildCard => write!(f, "{}", "<*>"),
+            Token::WildCard => write!(f, "<*>"),
         }
     }
 }
@@ -95,7 +94,7 @@ impl std::clone::Clone for Token {
 
 #[derive(PartialEq)]
 struct GroupSimilarity {
-    approximate_similarity: f32,
+    approximate_similarity: u32,
     exact_similarity: f32,
 }
 
@@ -162,26 +161,24 @@ impl LogCluster {
 
     fn similarity(&self, log: &[Token]) -> GroupSimilarity {
         let len = self.log_tokens.len() as f32;
-        let mut approximate_similarity: f32 = 0.0;
+        let mut approximate_similarity: u32 = 0;
         let mut exact_similarity: f32 = 0.0;
 
         for (pattern, token) in self.log_tokens.iter().zip(log.iter()) {
             if token == pattern {
-                approximate_similarity += 1.0;
                 exact_similarity += 1.0;
             } else if *pattern == Token::WildCard {
-                approximate_similarity += 1.0;
+                approximate_similarity += 1;
             }
         }
         GroupSimilarity {
-            approximate_similarity: approximate_similarity / len,
+            approximate_similarity,
             exact_similarity: exact_similarity / len,
         }
     }
 
     fn add_log(&mut self, log: &[Token]) {
-        for i in 0..log.len() {
-            let token = &self.log_tokens[i];
+        for (i, token) in log.iter().enumerate() {
             if token != &Token::WildCard {
                 let other_token = &log[i];
                 if token != other_token {
@@ -229,14 +226,14 @@ impl Leaf {
     ) -> Option<&LogCluster> {
         match group {
             Some(gas) => {
-                if gas.similarity.approximate_similarity < *min_similarity {
+                if gas.similarity.exact_similarity < *min_similarity {
                     let cluster = LogCluster::new(log_tokens.to_vec());
                     self.log_groups.push(cluster);
                     self.log_groups.last()
                 } else {
                     self.log_groups
                         .get_mut(gas.group_index)
-                        .expect(format!("bad log group index [{}]", gas.group_index).as_str())
+                        .unwrap_or_else(|| panic!("bad log group index [{}]", gas.group_index))
                         .add_log(log_tokens);
                     self.log_groups.get(gas.group_index)
                 }
@@ -334,7 +331,7 @@ impl Node {
         };
         if depth == log_tokens.len() - 1 || depth == *max_depth as usize {
             if let Node::Inner(node) = self {
-                let child = node.children.entry(token).or_insert(Node::leaf());
+                let child = node.children.entry(token).or_insert_with(Node::leaf);
                 if let Node::Leaf(leaf) = child {
                     let best_group = leaf.best_group(log_tokens);
                     return leaf.add_to_group(best_group, min_similarity, log_tokens);
@@ -354,7 +351,7 @@ impl Node {
                 let child = inner
                     .children
                     .entry(owned_token)
-                    .or_insert(Node::inner(depth + 1));
+                    .or_insert_with(|| Node::inner(depth + 1));
                 child.add_child_recur(
                     depth + 1,
                     max_depth,
@@ -398,9 +395,8 @@ impl Display for DrainTree {
     }
 }
 
-impl DrainTree {
-    /// Creates new DrainTree struct with default values
-    pub fn new() -> Self {
+impl Default for DrainTree {
+    fn default() -> Self {
         DrainTree {
             root: HashMap::new(),
             filter_patterns_str: vec![],
@@ -411,7 +407,13 @@ impl DrainTree {
             overall_pattern: None,
             overall_pattern_str: None,
             drain_field: None,
-        }
+        }    }
+}
+
+impl DrainTree {
+    /// Creates new DrainTree struct with default values
+    pub fn new() -> Self {
+        DrainTree::default()
     }
 
     /// How deep should the tree be allowed to grow
@@ -490,7 +492,7 @@ impl DrainTree {
                     .expect("poorly formatted overall_pattern"),
             );
         }
-        let mut filter_patterns = Vec::with_capacity(*&self.filter_patterns_str.len());
+        let mut filter_patterns = Vec::with_capacity(self.filter_patterns_str.len());
         for pattern in &self.filter_patterns_str {
             if let Ok(c) = grok.compile(pattern.as_str(), true) {
                 filter_patterns.push(c);
@@ -500,7 +502,7 @@ impl DrainTree {
         self
     }
 
-    fn process(filter_patterns: &Vec<grok::Pattern>, log_line: String) -> Vec<Token> {
+    fn process(filter_patterns: &[grok::Pattern], log_line: String) -> Vec<Token> {
         log_line
             .split(' ')
             .map(|t| t.trim())
@@ -508,17 +510,13 @@ impl DrainTree {
                 match filter_patterns
                     .iter()
                     .map(|p| p.match_against(t))
-                    .filter(|o| o.is_some())
-                    .next()
+                    .find(|o| o.is_some())
                 {
-                    Some(m) => match m {
-                        Some(matches) => match matches.iter().next() {
+                    Some(Some(matches)) => match matches.iter().next() {
                             Some((name, _pattern)) => Token::Val(format!("<{}>", name)),
                             None => Token::WildCard,
                         },
-                        None => Token::Val(String::from(t)),
-                    },
-                    None => Token::Val(String::from(t)),
+                    _ => Token::Val(String::from(t))
                 }
             })
             .collect()
@@ -531,17 +529,13 @@ impl DrainTree {
     ) -> Option<&'a LogCluster> {
         let mut current_node = Some(child);
         for t in processed_log {
-            if let Some(node) = current_node {
-                if let Node::Inner(inner) = node {
+            if let Some(Node::Inner(inner)) = current_node {
                     current_node = inner.children.get(t);
-                }
             }
         }
-        if let Some(node) = current_node {
-            if let Node::Leaf(leaf) = node {
+        if let Some(Node::Leaf(leaf)) = current_node {
                 let gas = leaf.best_group(processed_log)?;
                 return Some(&leaf.log_groups[gas.group_index]);
-            }
         }
         None
     }
@@ -576,7 +570,7 @@ impl DrainTree {
     pub fn log_group(&self, log_line: &str) -> Option<&LogCluster> {
         let processed_line = self
             .apply_overall_pattern(log_line)
-            .unwrap_or(log_line.to_string());
+            .unwrap_or_else(|| log_line.to_string());
         let tokens = DrainTree::process(&self.filter_patterns, processed_line);
         self.log_group_for_tokens(tokens.as_slice())
     }
@@ -593,12 +587,12 @@ impl DrainTree {
         let processed_line = self.apply_overall_pattern(log_line);
         let tokens = DrainTree::process(
             &self.filter_patterns,
-            processed_line.unwrap_or(log_line.to_string()),
+            processed_line.unwrap_or_else(|| log_line.to_string()),
         );
         let len = tokens.len();
         self.root
             .entry(len)
-            .or_insert(Node::inner(0))
+            .or_insert_with(|| Node::inner(0))
             .add_child_recur(
                 0,
                 &self.max_depth,
@@ -631,6 +625,7 @@ impl DrainTree {
 mod tests {
     const WILDCARD: &str = "<*>";
     use super::*;
+    use float_cmp::approx_eq;
 
     fn tokens_from(strs: &[&str]) -> Vec<Token> {
         let mut v = Vec::with_capacity(strs.len());
@@ -684,8 +679,8 @@ mod tests {
         let group = LogCluster::new(template);
         let similarity = group.similarity(tokens.as_slice());
 
-        assert_eq!(similarity.exact_similarity, 0.6);
-        assert_eq!(similarity.approximate_similarity, 0.8);
+        assert!(approx_eq!(f32, similarity.exact_similarity, 0.6));
+        assert_eq!(similarity.approximate_similarity, 1);
     }
 
     #[test]
@@ -705,8 +700,8 @@ mod tests {
             .expect("missing best group");
 
         assert_eq!(best_group.group_index, 0);
-        assert_eq!(best_group.similarity.exact_similarity, 0.6);
-        assert_eq!(best_group.similarity.approximate_similarity, 0.8);
+        assert!(approx_eq!(f32, best_group.similarity.exact_similarity, 0.6));
+        assert_eq!(best_group.similarity.approximate_similarity, 1);
 
         let leaf = Leaf {
             log_groups: vec![
@@ -719,8 +714,8 @@ mod tests {
             .expect("missing best group");
 
         assert_eq!(best_group.group_index, 1);
-        assert_eq!(best_group.similarity.exact_similarity, 0.6);
-        assert_eq!(best_group.similarity.approximate_similarity, 0.6);
+        assert!(approx_eq!(f32, best_group.similarity.exact_similarity, 0.6));
+        assert_eq!(best_group.similarity.approximate_similarity, 0);
     }
 
     #[test]
@@ -749,7 +744,7 @@ mod tests {
                     group_index: 1,
                     similarity: GroupSimilarity {
                         exact_similarity: 0.1,
-                        approximate_similarity: 0.1,
+                        approximate_similarity: 4,
                     },
                 }),
                 &min_sim,
@@ -771,7 +766,7 @@ mod tests {
                     group_index: 0,
                     similarity: GroupSimilarity {
                         exact_similarity: 0.6,
-                        approximate_similarity: 0.6,
+                        approximate_similarity: 3,
                     },
                 }),
                 &min_sim,
@@ -780,7 +775,7 @@ mod tests {
             assert_eq!(leaf.log_groups.len(), 3);
             assert_eq!(
                 leaf.log_groups[0].log_tokens,
-                tokens_from(&["foo", WILDCARD, WILDCARD, "bar", "baz"])
+                tokens_from(&["foo", "bar", WILDCARD, "bar", "baz"])
             );
         }
     }
