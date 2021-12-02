@@ -180,7 +180,7 @@ impl LogCluster {
     fn add_log(&mut self, log: &[Token]) {
         for (i, token) in log.iter().enumerate() {
             if token != &Token::WildCard {
-                let other_token = &log[i];
+                let other_token = &self.log_tokens[i];
                 if token != other_token {
                     self.log_tokens[i] = Token::WildCard;
                 }
